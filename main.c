@@ -36,7 +36,7 @@ uint32_t local_ip;
 uint32_t gateway_ip;
 
 const int dpdk_port_id = 0;
-const int n_lcores = 2;
+const int n_lcores = 3;
 int lcores[10];
 
 struct rte_timer arp_timer;
@@ -192,10 +192,6 @@ int app_main_loop_nic()
     }
     if (n_bufs != 0)
     {
-      for (int i = 0; i < n_bufs; i++)
-      {
-        print_pkt(bufs[i]);
-      }
       int ret = rte_ring_enqueue_burst(eth_ring->in, (void **)bufs, n_bufs, NULL);
       if (ret > 0 && ret < n_bufs)
       {
@@ -243,20 +239,16 @@ int append_arp_table(uint32_t ip_addr, uint8_t *mac_addr)
   return -1;
 }
 
-int fill_ether_hdr(struct rte_mbuf *m)
+int fill_ether_hdr(struct rte_mbuf *m, uint8_t *src_mac, uint8_t *dst_mac, uint16_t type)
 {
   struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
-  if (eth_hdr->ether_type != RTE_GTP_TYPE_IPV4)
-    return 0;
+  // if (eth_hdr->ether_type != RTE_GTP_TYPE_IPV4)
+  //   return 0;
   struct rte_ipv4_hdr *ipv4_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
-  int idx = find_arp_table(ipv4_hdr->dst_addr);
-  if (idx == -1)
-  {
-    return 0;
-  }
-  rte_memcpy(eth_hdr->dst_addr.addr_bytes, arp_table[idx], RTE_ETHER_ADDR_LEN);
-  rte_memcpy(eth_hdr->src_addr.addr_bytes, my_addr, RTE_ETHER_ADDR_LEN);
-  (eth_hdr->dst_addr.addr_bytes, arp_table[idx], RTE_ETHER_ADDR_LEN);
+  rte_memcpy(eth_hdr->dst_addr.addr_bytes, dst_mac, RTE_ETHER_ADDR_LEN);
+  rte_memcpy(eth_hdr->src_addr.addr_bytes, src_mac, RTE_ETHER_ADDR_LEN);
+  eth_hdr->ether_type = rte_cpu_to_be_16(type);
+  return 0;
 }
 
 void update_timer()
@@ -315,6 +307,8 @@ struct rte_mbuf *encode_arp(uint16_t arp_opcode, uint8_t *dst_mac, uint32_t targ
 static void arp_request_timer_cb(__attribute__((unused)) struct rte_timer *tim, void *arg)
 {
   RTE_LOG(INFO, APP, "ARP request \n");
+  if (find_arp_table(gateway_ip) != -1)
+    return;
   struct rte_mbuf *arp_pkt = encode_arp(RTE_ARP_OP_REQUEST, broadcast_addr, gateway_ip, local_ip);
   int ret = rte_ring_enqueue(eth_ring->out, arp_pkt);
   if (ret != 0)
@@ -396,20 +390,145 @@ int app_main_loop_eth()
     if (ret == 0)
     {
       struct rte_mbuf *m = bufs_out[0];
-      int succ = fill_ether_hdr(m);
-      if (succ == 0)
-        rte_pktmbuf_free(m); // maybe no arp table for this ip
-      else
+      int index = find_arp_table(gateway_ip);
+      print_pkt(m);
+      if (index != -1)
       {
-        int res;
-        do
+        int succ = fill_ether_hdr(m, my_addr, arp_table[index], RTE_ETHER_TYPE_IPV4);
+
+        if (succ != 0)
+          rte_pktmbuf_free(m); // maybe no arp table for this ip
+        else
         {
-          res = rte_ring_enqueue(eth_ring->out, m);
-        } while (res != 0);
+          int res;
+          do
+          {
+            res = rte_ring_enqueue(eth_ring->out, m);
+          } while (res != 0);
+        }
       }
+      else
+        rte_pktmbuf_free(m);
     }
     update_timer();
   }
+  return 0;
+}
+
+void fill_ip_hdr(struct rte_mbuf *m, uint32_t src_ip, uint32_t dst_ip, uint8_t proto_id)
+{
+  struct rte_ipv4_hdr *ip_hdr = rte_pktmbuf_mtod_offset(m, struct rte_ipv4_hdr *, sizeof(struct rte_ether_hdr));
+
+  ip_hdr->version_ihl = 0x45;
+  ip_hdr->type_of_service = 0;
+  ip_hdr->total_length = rte_cpu_to_be_16(sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_icmp_hdr));
+  ip_hdr->packet_id = 0;
+  ip_hdr->fragment_offset = 0;
+  ip_hdr->time_to_live = 64; // ttl = 64
+  ip_hdr->next_proto_id = proto_id;
+  ip_hdr->src_addr = src_ip;
+  ip_hdr->dst_addr = dst_ip;
+
+  ip_hdr->hdr_checksum = 0;
+  ip_hdr->hdr_checksum = rte_ipv4_cksum(ip_hdr);
+}
+
+uint16_t icmp_checksum(uint16_t *addr, int count)
+{
+  register long sum = 0;
+
+  while (count > 1)
+  {
+
+    sum += *(unsigned short *)addr++;
+    count -= 2;
+  }
+
+  if (count > 0)
+  {
+    sum += *(unsigned char *)addr;
+  }
+
+  while (sum >> 16)
+  {
+    sum = (sum & 0xffff) + (sum >> 16);
+  }
+
+  return ~sum;
+}
+
+struct rte_mbuf *encode_icmp(uint8_t *src_mac, uint8_t *dst_mac, uint32_t src_ip, uint32_t dst_ip, uint16_t id, uint16_t seqnb)
+{
+  struct rte_mbuf *icmp_pkt = rte_pktmbuf_alloc(mbuf_pool);
+  int total_size = sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_icmp_hdr);
+  icmp_pkt->data_len = total_size;
+  icmp_pkt->pkt_len = total_size;
+  fill_ether_hdr(icmp_pkt, src_mac, dst_mac, RTE_ETHER_TYPE_IPV4);
+  fill_ip_hdr(icmp_pkt, src_ip, dst_ip, IPPROTO_ICMP);
+
+  struct rte_icmp_hdr *icmp_hdr = rte_pktmbuf_mtod_offset(icmp_pkt, struct rte_icmp_hdr *, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr));
+  icmp_hdr->icmp_type = RTE_IP_ICMP_ECHO_REPLY;
+  icmp_hdr->icmp_code = 0;
+  icmp_hdr->icmp_ident = id;
+  icmp_hdr->icmp_seq_nb = seqnb;
+
+  icmp_hdr->icmp_cksum = 0;
+  icmp_hdr->icmp_cksum = icmp_checksum((uint16_t *)icmp_hdr, sizeof(struct rte_icmp_hdr));
+  return icmp_pkt;
+}
+
+void process_icmp(struct rte_mbuf *m)
+{
+  struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
+  struct rte_ipv4_hdr *ip_hdr = rte_pktmbuf_mtod_offset(m, struct rte_ipv4_hdr *, sizeof(struct rte_ether_hdr));
+  struct rte_icmp_hdr *icmp_hdr = rte_pktmbuf_mtod_offset(m, struct rte_icmp_hdr *, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr));
+  if (icmp_hdr->icmp_type == RTE_IP_ICMP_ECHO_REPLY)
+  {
+    // TODO
+    return;
+  }
+  else if (icmp_hdr->icmp_type == RTE_IP_ICMP_ECHO_REQUEST)
+  {
+    RTE_LOG(INFO, APP, "reply an icmp \n");
+    struct rte_mbuf *m = encode_icmp(my_addr, eth_hdr->src_addr.addr_bytes, ip_hdr->dst_addr, ip_hdr->src_addr, icmp_hdr->icmp_ident, icmp_hdr->icmp_seq_nb);
+    int ret;
+    do
+    {
+      rte_ring_enqueue(ip_ring->out, m);
+    } while (ret != 0);
+  }
+}
+
+int app_main_loop_ip()
+{
+  RTE_LOG(INFO, APP, "lcore %d is doing ip \n", rte_lcore_id());
+  struct rte_mbuf *bufs_in[BURST_SIZE];
+  struct rte_mbuf *bufs_out[BURST_SIZE];
+  while (1)
+  {
+    int ret = rte_ring_dequeue(ip_ring->in, (void **)bufs_in);
+    if (ret == 0)
+    {
+      struct rte_mbuf *m = bufs_in[0];
+      struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
+      struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
+      if (ip_hdr->next_proto_id == IPPROTO_ICMP)
+      {
+        RTE_LOG(INFO, APP, "recv an ICMP pkt. \n");
+        process_icmp(m);
+      }
+      rte_pktmbuf_free(m);
+    }
+
+    ret = rte_ring_dequeue(tcp_ring->out, (void **)bufs_out);
+    if (ret == 0)
+    {
+      struct rte_mbuf *m = bufs_out[0];
+      // TODO
+      rte_pktmbuf_free(m);
+    }
+  }
+  return 0;
 }
 
 /* Main loop executed by each lcore */
@@ -426,6 +545,10 @@ int app_main_loop(void *)
   else if (lcore_id == 1)
   {
     app_main_loop_eth();
+  }
+  else if (lcore_id == 2)
+  {
+    app_main_loop_ip();
   }
   return 0;
 }
