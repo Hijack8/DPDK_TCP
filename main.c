@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <errno.h>
 #include <sys/queue.h>
+#include <sys/time.h>
 #include <getopt.h>
 
 #include <rte_memory.h>
@@ -42,6 +43,11 @@ int lcores[10];
 struct rte_timer arp_timer;
 struct rte_hash *mac_hash;
 
+struct time_val
+{
+  uint8_t val[32];
+};
+
 uint8_t broadcast_addr[RTE_ETHER_ADDR_LEN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 uint8_t my_addr[RTE_ETHER_ADDR_LEN];
 
@@ -49,6 +55,17 @@ uint8_t arp_table[ARP_TABLE_SIZE][RTE_ETHER_ADDR_LEN];
 uint32_t arp_table_curr_n;
 
 struct rte_mempool *mbuf_pool;
+
+struct new_icmp_hdr
+{
+  uint8_t icmp_type;      /* ICMP packet type. */
+  uint8_t icmp_code;      /* ICMP packet code. */
+  rte_be16_t icmp_cksum;  /* ICMP packet checksum. */
+  rte_be16_t icmp_ident;  /* ICMP packet identifier. */
+  rte_be16_t icmp_seq_nb; /* ICMP packet sequence number. */
+  struct time_val icmp_timestamp;
+  uint8_t padding[40];
+} __rte_packed;
 
 struct ring_buffer
 {
@@ -59,12 +76,6 @@ struct ring_buffer
 struct ring_buffer *eth_ring;
 struct ring_buffer *ip_ring;
 struct ring_buffer *tcp_ring;
-
-static struct ring_buffer *init_ring(struct ring_buffer *r, const char *s)
-{
-
-  return r;
-}
 
 void app_init_hash()
 {
@@ -421,7 +432,7 @@ void fill_ip_hdr(struct rte_mbuf *m, uint32_t src_ip, uint32_t dst_ip, uint8_t p
 
   ip_hdr->version_ihl = 0x45;
   ip_hdr->type_of_service = 0;
-  ip_hdr->total_length = rte_cpu_to_be_16(sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_icmp_hdr));
+  ip_hdr->total_length = rte_cpu_to_be_16(sizeof(struct rte_ipv4_hdr) + sizeof(struct new_icmp_hdr));
   ip_hdr->packet_id = 0;
   ip_hdr->fragment_offset = 0;
   ip_hdr->time_to_live = 64; // ttl = 64
@@ -460,20 +471,21 @@ uint16_t icmp_checksum(uint16_t *addr, int count)
 struct rte_mbuf *encode_icmp(uint8_t *src_mac, uint8_t *dst_mac, uint32_t src_ip, uint32_t dst_ip, uint16_t id, uint16_t seqnb)
 {
   struct rte_mbuf *icmp_pkt = rte_pktmbuf_alloc(mbuf_pool);
-  int total_size = sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_icmp_hdr);
+  int total_size = sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) + sizeof(struct new_icmp_hdr);
   icmp_pkt->data_len = total_size;
   icmp_pkt->pkt_len = total_size;
   fill_ether_hdr(icmp_pkt, src_mac, dst_mac, RTE_ETHER_TYPE_IPV4);
   fill_ip_hdr(icmp_pkt, src_ip, dst_ip, IPPROTO_ICMP);
 
-  struct rte_icmp_hdr *icmp_hdr = rte_pktmbuf_mtod_offset(icmp_pkt, struct rte_icmp_hdr *, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr));
+  struct new_icmp_hdr *icmp_hdr = rte_pktmbuf_mtod_offset(icmp_pkt, struct new_icmp_hdr *, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr));
   icmp_hdr->icmp_type = RTE_IP_ICMP_ECHO_REPLY;
   icmp_hdr->icmp_code = 0;
   icmp_hdr->icmp_ident = id;
   icmp_hdr->icmp_seq_nb = seqnb;
+  gettimeofday((void *)&icmp_hdr->icmp_timestamp, NULL);
 
   icmp_hdr->icmp_cksum = 0;
-  icmp_hdr->icmp_cksum = icmp_checksum((uint16_t *)icmp_hdr, sizeof(struct rte_icmp_hdr));
+  icmp_hdr->icmp_cksum = icmp_checksum((uint16_t *)icmp_hdr, sizeof(struct new_icmp_hdr));
   return icmp_pkt;
 }
 
@@ -481,7 +493,7 @@ void process_icmp(struct rte_mbuf *m)
 {
   struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
   struct rte_ipv4_hdr *ip_hdr = rte_pktmbuf_mtod_offset(m, struct rte_ipv4_hdr *, sizeof(struct rte_ether_hdr));
-  struct rte_icmp_hdr *icmp_hdr = rte_pktmbuf_mtod_offset(m, struct rte_icmp_hdr *, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr));
+  struct new_icmp_hdr *icmp_hdr = rte_pktmbuf_mtod_offset(m, struct new_icmp_hdr *, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr));
   if (icmp_hdr->icmp_type == RTE_IP_ICMP_ECHO_REPLY)
   {
     // TODO
