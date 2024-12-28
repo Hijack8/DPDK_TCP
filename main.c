@@ -1,43 +1,12 @@
-#include <stdio.h>
-#include <string.h>
-#include <stdint.h>
-#include <errno.h>
-#include <sys/queue.h>
-#include <sys/time.h>
-#include <getopt.h>
+#include "main.h"
 
-#include <rte_memory.h>
-#include <rte_launch.h>
-#include <rte_eal.h>
-#include <rte_per_lcore.h>
-#include <rte_lcore.h>
-#include <rte_debug.h>
-#include <rte_mempool.h>
-#include <rte_mbuf.h>
-#include <rte_common.h>
-#include <rte_log.h>
-#include <rte_malloc.h>
-#include <rte_prefetch.h>
-#include <rte_ethdev.h>
-#include <rte_hash.h>
-#include <rte_hash_crc.h>
-#include <rte_spinlock.h>
-#include <rte_timer.h>
-#define MAKE_IPV4_ADDR(a, b, c, d) (a + (b << 8) + (c << 16) + (d << 24))
-#define RTE_LOGTYPE_APP RTE_LOGTYPE_USER1
-
-#define APP_MAX_LCORES 10
-#define BURST_SIZE 256
-#define ENABLE_SEND 1
-#define RING_SIZE 1024
-#define ARP_TABLE_SIZE 10
-#define TIMER_CYCLES 1200000000ULL
+struct localhost *lhost = NULL;
 
 uint32_t local_ip;
 uint32_t gateway_ip;
 
 const int dpdk_port_id = 0;
-const int n_lcores = 3;
+const int n_lcores = 4;
 int lcores[10];
 
 struct rte_timer arp_timer;
@@ -67,14 +36,8 @@ struct new_icmp_hdr
   uint8_t padding[40];
 } __rte_packed;
 
-struct ring_buffer
-{
-  struct rte_ring *in;
-  struct rte_ring *out;
-};
-
 struct ring_buffer *eth_ring;
-struct ring_buffer *ip_ring;
+struct ring_buffer *proto_ring;
 struct ring_buffer *tcp_ring;
 
 void app_init_hash()
@@ -94,16 +57,16 @@ void app_init_hash()
 void app_init_rings()
 {
   eth_ring = (struct ring_buffer *)rte_malloc("eth_ring", sizeof(struct ring_buffer), 0);
-  ip_ring = (struct ring_buffer *)rte_malloc("ip_ring", sizeof(struct ring_buffer), 0);
+  proto_ring = (struct ring_buffer *)rte_malloc("proto_ring", sizeof(struct ring_buffer), 0);
   tcp_ring = (struct ring_buffer *)rte_malloc("tcp_ring", sizeof(struct ring_buffer), 0);
   eth_ring->in = rte_ring_create("eth_ring_in", RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
   eth_ring->out = rte_ring_create("eth_ring_out", RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
-  ip_ring->in = rte_ring_create("ip_ring_in", RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
-  ip_ring->out = rte_ring_create("ip_ring_out", RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+  proto_ring->in = rte_ring_create("proto_ring_in", RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+  proto_ring->out = rte_ring_create("proto_ring_out", RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
   tcp_ring->in = rte_ring_create("tcp_ring_in", RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
   tcp_ring->out = rte_ring_create("tcp_ring_out", RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
   if (eth_ring->in == NULL || eth_ring->out == NULL ||
-      ip_ring->in == NULL || ip_ring->out == NULL ||
+      proto_ring->in == NULL || proto_ring->out == NULL ||
       tcp_ring->in == NULL || tcp_ring->out == NULL)
   {
     rte_panic("Create ring failed \n");
@@ -317,7 +280,7 @@ struct rte_mbuf *encode_arp(uint16_t arp_opcode, uint8_t *dst_mac, uint32_t targ
 
 static void arp_request_timer_cb(__attribute__((unused)) struct rte_timer *tim, void *arg)
 {
-  RTE_LOG(INFO, APP, "ARP request \n");
+  // RTE_LOG(INFO, APP, "ARP request \n");
   if (find_arp_table(gateway_ip) != -1)
     return;
   struct rte_mbuf *arp_pkt = encode_arp(RTE_ARP_OP_REQUEST, broadcast_addr, gateway_ip, local_ip);
@@ -390,19 +353,18 @@ int app_main_loop_eth()
       {
         do
         {
-          ret = rte_ring_enqueue(ip_ring->in, m);
+          ret = rte_ring_enqueue(proto_ring->in, m);
         } while (ret != 0);
       }
 
       rte_pktmbuf_free(m);
     }
     // the pkts from high level (IP)
-    ret = rte_ring_dequeue(ip_ring->out, (void **)bufs_out);
+    ret = rte_ring_dequeue(proto_ring->out, (void **)bufs_out);
     if (ret == 0)
     {
       struct rte_mbuf *m = bufs_out[0];
       int index = find_arp_table(gateway_ip);
-      print_pkt(m);
       if (index != -1)
       {
         int succ = fill_ether_hdr(m, my_addr, arp_table[index], RTE_ETHER_TYPE_IPV4);
@@ -426,13 +388,14 @@ int app_main_loop_eth()
   return 0;
 }
 
-void fill_ip_hdr(struct rte_mbuf *m, uint32_t src_ip, uint32_t dst_ip, uint8_t proto_id)
+void fill_ip_hdr(struct rte_mbuf *m, uint16_t len, uint32_t src_ip, uint32_t dst_ip, uint8_t proto_id)
 {
   struct rte_ipv4_hdr *ip_hdr = rte_pktmbuf_mtod_offset(m, struct rte_ipv4_hdr *, sizeof(struct rte_ether_hdr));
 
   ip_hdr->version_ihl = 0x45;
   ip_hdr->type_of_service = 0;
-  ip_hdr->total_length = rte_cpu_to_be_16(sizeof(struct rte_ipv4_hdr) + sizeof(struct new_icmp_hdr));
+  ip_hdr->total_length = rte_cpu_to_be_16(len);
+  // rte_cpu_to_be_16(sizeof(struct rte_ipv4_hdr) + sizeof(struct new_icmp_hdr));
   ip_hdr->packet_id = 0;
   ip_hdr->fragment_offset = 0;
   ip_hdr->time_to_live = 64; // ttl = 64
@@ -475,7 +438,7 @@ struct rte_mbuf *encode_icmp(uint8_t *src_mac, uint8_t *dst_mac, uint32_t src_ip
   icmp_pkt->data_len = total_size;
   icmp_pkt->pkt_len = total_size;
   fill_ether_hdr(icmp_pkt, src_mac, dst_mac, RTE_ETHER_TYPE_IPV4);
-  fill_ip_hdr(icmp_pkt, src_ip, dst_ip, IPPROTO_ICMP);
+  fill_ip_hdr(icmp_pkt, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr), src_ip, dst_ip, IPPROTO_ICMP);
 
   struct new_icmp_hdr *icmp_hdr = rte_pktmbuf_mtod_offset(icmp_pkt, struct new_icmp_hdr *, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr));
   icmp_hdr->icmp_type = RTE_IP_ICMP_ECHO_REPLY;
@@ -506,19 +469,19 @@ void process_icmp(struct rte_mbuf *m)
     int ret;
     do
     {
-      rte_ring_enqueue(ip_ring->out, m);
+      rte_ring_enqueue(proto_ring->out, m);
     } while (ret != 0);
   }
 }
 
-int app_main_loop_ip()
+int app_main_loop_proto()
 {
   RTE_LOG(INFO, APP, "lcore %d is doing ip \n", rte_lcore_id());
   struct rte_mbuf *bufs_in[BURST_SIZE];
   struct rte_mbuf *bufs_out[BURST_SIZE];
   while (1)
   {
-    int ret = rte_ring_dequeue(ip_ring->in, (void **)bufs_in);
+    int ret = rte_ring_dequeue(proto_ring->in, (void **)bufs_in);
     if (ret == 0)
     {
       struct rte_mbuf *m = bufs_in[0];
@@ -529,16 +492,19 @@ int app_main_loop_ip()
         RTE_LOG(INFO, APP, "recv an ICMP pkt. \n");
         process_icmp(m);
       }
+      else if (ip_hdr->next_proto_id == IPPROTO_UDP)
+      {
+        RTE_LOG(INFO, APP, "recv an UDP pkt. \n");
+        process_udp(m);
+      }
+      else if (ip_hdr->next_proto_id == IPPROTO_TCP)
+      {
+        RTE_LOG(INFO, APP, "recv an TCP pkt. \n");
+      }
       rte_pktmbuf_free(m);
     }
 
-    ret = rte_ring_dequeue(tcp_ring->out, (void **)bufs_out);
-    if (ret == 0)
-    {
-      struct rte_mbuf *m = bufs_out[0];
-      // TODO
-      rte_pktmbuf_free(m);
-    }
+    udp_out();
   }
   return 0;
 }
@@ -560,7 +526,11 @@ int app_main_loop(void *)
   }
   else if (lcore_id == 2)
   {
-    app_main_loop_ip();
+    app_main_loop_proto();
+  }
+  else if (lcore_id == 3)
+  {
+    udp_server_entry(NULL);
   }
   return 0;
 }
@@ -620,6 +590,6 @@ int main(int argc, char *argv[])
     if (rte_eal_wait_lcore(lcore) < 0)
       return -1;
   }
-  // clean up the EAL
+  // clean up the EALgg
   rte_eal_cleanup();
 }
