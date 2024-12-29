@@ -74,6 +74,85 @@ struct ring_buffer
     struct rte_ring *out;
 };
 
+#define TCP_OPTION_LENGTH 10
+
+#define TCP_MAX_SEQ 4294967295
+
+#define TCP_INITIAL_WINDOW 14600
+
+// for tcp
+typedef enum TCP_STATUS
+{
+
+    TCP_STATUS_CLOSED = 0,
+    TCP_STATUS_LISTEN,
+    TCP_STATUS_SYN_RCVD,
+    TCP_STATUS_SYN_SENT,
+    TCP_STATUS_ESTABLISHED,
+
+    TCP_STATUS_FIN_WAIT_1,
+    TCP_STATUS_FIN_WAIT_2,
+    TCP_STATUS_CLOSING,
+    TCP_STATUS_TIME_WAIT,
+
+    TCP_STATUS_CLOSE_WAIT,
+    TCP_STATUS_LAST_ACK
+
+} TCP_STATUS;
+
+struct tcp_stream
+{ // tcb control block
+
+    int fd; //
+
+    uint32_t sip;
+    uint32_t dip;
+
+    uint16_t sport;
+    uint16_t dport;
+
+    uint16_t proto;
+
+    uint8_t localmac[RTE_ETHER_ADDR_LEN];
+
+    uint32_t snd_nxt; // seqnum
+    uint32_t rcv_nxt; // acknum
+
+    TCP_STATUS status;
+
+    struct rte_ring *sndbuf;
+    struct rte_ring *rcvbuf;
+
+    struct tcp_stream *prev;
+    struct tcp_stream *next;
+};
+
+struct tcp_streams
+{
+    int count;
+    struct tcp_stream *stream_head;
+};
+
+struct tcp_frame
+{
+
+    uint16_t sport;
+    uint16_t dport;
+    uint32_t seqnum; // cpu
+    uint32_t acknum; // cpu
+    uint8_t hdrlen_off;
+    uint8_t tcp_flags;
+    uint16_t windows;
+    uint16_t cksum;
+    uint16_t tcp_urp;
+
+    int optlen;
+    uint32_t option[TCP_OPTION_LENGTH];
+
+    unsigned char *data;
+    int length;
+};
+
 int udp_server_entry(__attribute__((unused)) void *arg);
 int nsocket(int domain, int type, int protocol);
 
@@ -102,3 +181,13 @@ void udp_out(void);
 void fill_ip_hdr(struct rte_mbuf *m, uint16_t len, uint32_t src_ip, uint32_t dst_ip, uint8_t proto_id);
 
 void print_ip_port(uint32_t ip, uint16_t port);
+
+void process_tcp(struct rte_mbuf *m);
+
+void tcp_handle_listen(struct tcp_stream *tcp_s, struct rte_tcp_hdr *tcphdr);
+void tcp_handle_syn_rcvd(struct tcp_stream *tcp_s, struct rte_tcp_hdr *tcphdr);
+void tcp_handle_syn_send(struct tcp_stream *tcp_s, struct rte_tcp_hdr *tcphdr);
+void tcp_handle_established(struct tcp_stream *tcp_s, struct rte_tcp_hdr *tcphdr);
+void tcp_out(void);
+
+void tcp_add_head(struct tcp_stream *sp);

@@ -1,6 +1,7 @@
 #include "main.h"
 
 struct localhost *lhost = NULL;
+struct tcp_streams *tcp_list = NULL;
 
 uint32_t local_ip;
 uint32_t gateway_ip;
@@ -218,7 +219,6 @@ int fill_ether_hdr(struct rte_mbuf *m, uint8_t *src_mac, uint8_t *dst_mac, uint1
   struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
   // if (eth_hdr->ether_type != RTE_GTP_TYPE_IPV4)
   //   return 0;
-  struct rte_ipv4_hdr *ipv4_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
   rte_memcpy(eth_hdr->dst_addr.addr_bytes, dst_mac, RTE_ETHER_ADDR_LEN);
   rte_memcpy(eth_hdr->src_addr.addr_bytes, src_mac, RTE_ETHER_ADDR_LEN);
   eth_hdr->ether_type = rte_cpu_to_be_16(type);
@@ -500,11 +500,13 @@ int app_main_loop_proto()
       else if (ip_hdr->next_proto_id == IPPROTO_TCP)
       {
         RTE_LOG(INFO, APP, "recv an TCP pkt. \n");
+        process_tcp(m);
       }
       rte_pktmbuf_free(m);
     }
 
     udp_out();
+    tcp_out();
   }
   return 0;
 }
