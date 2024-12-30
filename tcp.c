@@ -158,6 +158,10 @@ void tcp_handle_syn_send(struct tcp_stream *tcp_s, struct rte_tcp_hdr *tcphdr) {
 }
 void tcp_handle_established(struct tcp_stream *tcp_s,
                             struct rte_tcp_hdr *tcphdr) {
+  if (tcphdr->tcp_flags & RTE_TCP_SYN_FLAG) {
+    RTE_LOG(INFO, APP, "Established: recv syn pkt. \n");
+  } else if (tcphdr->tcp_flags & RTE_TCP_PSH_FLAG) {
+  }
   uint8_t hdrlen = tcphdr->data_off & 0xf0;
   hdrlen >>= 4;
   uint8_t *payload = (uint8_t *)(tcphdr) + hdrlen * 4;
@@ -234,4 +238,46 @@ void tcp_out(void) {
       ret = rte_ring_enqueue(proto_ring->out, m);
     } while (ret != 0);
   }
+}
+
+#define BUFFER_SIZE 1024
+int tcp_server_entry(void *arg) {
+
+  int listenfd = nsocket(AF_INET, SOCK_STREAM, 0);
+  if (listenfd == -1) {
+    return -1;
+  }
+
+  struct sockaddr_in servaddr;
+  memset(&servaddr, 0, sizeof(struct sockaddr));
+  servaddr.sin_family = AF_INET;
+  servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+  servaddr.sin_port = htons(9999);
+  nbind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
+
+  nlisten(listenfd, 10);
+
+  while (1) {
+
+    struct sockaddr_in client;
+    socklen_t len = sizeof(client);
+    int connfd = naccept(listenfd, (struct sockaddr *)&client, &len);
+
+    char buff[BUFFER_SIZE] = {0};
+    while (1) {
+
+      int n = nrecv(connfd, buff, BUFFER_SIZE, 0); // block
+      if (n > 0) {
+        printf("recv: %s\n", buff);
+        nsend(connfd, buff, n, 0);
+
+      } else if (n == 0) {
+
+        nclose(connfd);
+        break;
+      } else { // nonblock
+      }
+    }
+  }
+  nclose(listenfd);
 }

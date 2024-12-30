@@ -506,7 +506,8 @@ int app_main_loop(void *) {
   } else if (lcore_id == 2) {
     app_main_loop_proto();
   } else if (lcore_id == 3) {
-    udp_server_entry(NULL);
+    // udp_server_entry(NULL);
+    tcp_server_entry(NULL);
   }
   return 0;
 }

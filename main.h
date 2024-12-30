@@ -36,12 +36,12 @@
 
 struct localhost {
   int fd;
+  uint8_t protocol;
 
   uint32_t localip;
   uint8_t localmac[RTE_ETHER_ADDR_LEN];
   uint16_t localport;
 
-  uint8_t protocol;
   struct rte_ring *sndbuf;
   struct rte_ring *rcvbuf;
 
@@ -186,3 +186,12 @@ void tcp_handle_established(struct tcp_stream *tcp_s,
 void tcp_out(void);
 
 void tcp_add_head(struct tcp_stream *sp);
+
+int tcp_server_entry(void *arg);
+
+int get_fd_from_bitmap();
+
+int nlisten(int sockfd, int backlog);
+ssize_t nrecv(int sockfd, void *buf, size_t len, int flags);
+ssize_t nsend(int sockfd, const void *buf, size_t len, int flags);
+int naccept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
