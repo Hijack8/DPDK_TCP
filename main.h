@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <getopt.h>
+#include <netinet/in.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -98,15 +99,14 @@ typedef enum TCP_STATUS {
 
 struct tcp_stream { // tcb control block
 
-  int fd; //
+  int fd;
+  uint8_t proto;
 
   uint32_t sip;
   uint32_t dip;
 
   uint16_t sport;
   uint16_t dport;
-
-  uint16_t proto;
 
   uint8_t localmac[RTE_ETHER_ADDR_LEN];
 
@@ -120,6 +120,8 @@ struct tcp_stream { // tcb control block
 
   struct tcp_stream *prev;
   struct tcp_stream *next;
+  pthread_cond_t cond;
+  pthread_mutex_t mutex;
 };
 
 struct tcp_streams {
@@ -163,12 +165,12 @@ int process_udp(struct rte_mbuf *m);
 
 void add_to_head(struct localhost *lh);
 
-struct localhost *find_host_by_fd(struct localhost *lhost, int sockfd);
-struct localhost *find_host_by_ip_port(struct localhost *lhost, uint32_t ip,
-                                       uint16_t port);
+void *find_host_by_fd(int sockfd);
+struct localhost *find_host_by_ip_port(uint32_t ip, uint16_t port);
 
 void del_node(struct localhost *host);
 
+void tcp_del_node(struct tcp_stream *tcp_s);
 void udp_out(void);
 
 void fill_ip_hdr(struct rte_mbuf *m, uint16_t len, uint32_t src_ip,
@@ -195,3 +197,7 @@ int nlisten(int sockfd, int backlog);
 ssize_t nrecv(int sockfd, void *buf, size_t len, int flags);
 ssize_t nsend(int sockfd, const void *buf, size_t len, int flags);
 int naccept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+
+struct tcp_streams *tcp_list_instance();
+struct tcp_stream *tcp_find_host_by_ip_port(uint32_t sip, uint32_t dip,
+                                            uint16_t sport, uint16_t dport);

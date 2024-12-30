@@ -1,23 +1,10 @@
 #include "main.h"
 
 #define UDP_APP_RECV_BUFFER_SIZE 128
-#define MAX_FD 1024
-int bitmap[MAX_FD];
-
 extern struct localhost *lhost;
 extern uint8_t *my_addr;
 extern struct ring_buffer *proto_ring;
 extern struct rte_mempool *mbuf_pool;
-
-int get_fd_from_bitmap() {
-  for (int i = 0; i < MAX_FD; i++) {
-    if (bitmap[i] == 0) {
-      bitmap[i] = 1;
-      return i;
-    }
-  }
-  return -1;
-}
 
 int udp_server_entry(__attribute__((unused)) void *arg) {
   RTE_LOG(INFO, APP, "lcore %d is doing udp server \n", rte_lcore_id());
@@ -66,7 +53,7 @@ int process_udp(struct rte_mbuf *m) {
   struct rte_udp_hdr *udphdr = (struct rte_udp_hdr *)(iphdr + 1);
 
   struct localhost *host =
-      find_host_by_ip_port(lhost, (iphdr->dst_addr), (udphdr->dst_port));
+      find_host_by_ip_port((iphdr->dst_addr), (udphdr->dst_port));
   print_ip_port(rte_be_to_cpu_32(iphdr->dst_addr),
                 rte_be_to_cpu_16(udphdr->dst_port));
   if (host == NULL)

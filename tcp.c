@@ -5,28 +5,6 @@ extern struct tcp_streams *tcp_list;
 extern struct ring_buffer *proto_ring;
 extern struct rte_mempool *mbuf_pool;
 
-struct tcp_streams *tcp_list_instance() {
-  if (tcp_list == NULL) {
-    tcp_list = rte_malloc("tcp_streams", sizeof(struct tcp_streams), 0);
-    tcp_list->count = 0;
-    tcp_list->stream_head = NULL;
-    return tcp_list;
-  }
-  return tcp_list;
-}
-
-struct tcp_stream *tcp_find_host_by_ip_port(uint32_t sip, uint32_t dip,
-                                            uint16_t sport, uint16_t dport) {
-  struct tcp_streams *tcp_list_inst = tcp_list_instance();
-  for (struct tcp_stream *streami = tcp_list_inst->stream_head; streami != NULL;
-       streami = streami->next) {
-    if (streami->sip == sip && streami->dip == dip && streami->sport == sport &&
-        streami->dport == dport)
-      return streami;
-  }
-  return NULL;
-}
-
 struct tcp_stream *tcp_stream_create(uint32_t sip, uint32_t dip, uint16_t sport,
                                      uint16_t dport) {
   struct tcp_stream *new_stream =

@@ -2,6 +2,7 @@
 #include "main.h"
 
 extern struct localhost *lhost;
+extern struct tcp_streams *tcp_list;
 
 void add_to_head(struct localhost *lh) {
   printf("add to head \n");
@@ -23,10 +24,17 @@ void add_to_head(struct localhost *lh) {
   return;
 }
 
-struct localhost *find_host_by_fd(struct localhost *lhost, int sockfd) {
+void *find_host_by_fd(int sockfd) {
   for (struct localhost *hosti = lhost; hosti != NULL; hosti = hosti->next) {
     if (hosti->fd == sockfd)
       return hosti;
+  }
+
+  struct tcp_streams *tcp_list_inst = tcp_list_instance();
+  for (struct tcp_stream *streami = tcp_list_inst->stream_head; streami != NULL;
+       streami = streami->next) {
+    if (streami->fd == sockfd)
+      return streami;
   }
   return NULL;
 }
@@ -36,8 +44,12 @@ void del_node(struct localhost *host) {
   host->next->prev = host->prev;
 }
 
-struct localhost *find_host_by_ip_port(struct localhost *lhost, uint32_t ip,
-                                       uint16_t port) {
+void tcp_del_node(struct tcp_stream *tcp_s) {
+  tcp_s->prev->next = tcp_s->next;
+  tcp_s->next->prev = tcp_s->prev;
+}
+
+struct localhost *find_host_by_ip_port(uint32_t ip, uint16_t port) {
   for (struct localhost *hosti = lhost; hosti != NULL; hosti = hosti->next) {
     print_ip_port(hosti->localip, hosti->localport);
     print_ip_port(ip, port);
