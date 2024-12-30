@@ -1,26 +1,26 @@
+#include <errno.h>
+#include <getopt.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdint.h>
-#include <errno.h>
 #include <sys/queue.h>
 #include <sys/time.h>
-#include <getopt.h>
 
-#include <rte_memory.h>
-#include <rte_launch.h>
-#include <rte_eal.h>
-#include <rte_per_lcore.h>
-#include <rte_lcore.h>
-#include <rte_debug.h>
-#include <rte_mempool.h>
-#include <rte_mbuf.h>
 #include <rte_common.h>
-#include <rte_log.h>
-#include <rte_malloc.h>
-#include <rte_prefetch.h>
+#include <rte_debug.h>
+#include <rte_eal.h>
 #include <rte_ethdev.h>
 #include <rte_hash.h>
 #include <rte_hash_crc.h>
+#include <rte_launch.h>
+#include <rte_lcore.h>
+#include <rte_log.h>
+#include <rte_malloc.h>
+#include <rte_mbuf.h>
+#include <rte_memory.h>
+#include <rte_mempool.h>
+#include <rte_per_lcore.h>
+#include <rte_prefetch.h>
 #include <rte_spinlock.h>
 #include <rte_timer.h>
 
@@ -34,44 +34,41 @@
 #define ARP_TABLE_SIZE 10
 #define TIMER_CYCLES 1200000000ULL
 
-struct localhost
-{
-    int fd;
+struct localhost {
+  int fd;
 
-    uint32_t localip;
-    uint8_t localmac[RTE_ETHER_ADDR_LEN];
-    uint16_t localport;
+  uint32_t localip;
+  uint8_t localmac[RTE_ETHER_ADDR_LEN];
+  uint16_t localport;
 
-    uint8_t protocol;
-    struct rte_ring *sndbuf;
-    struct rte_ring *rcvbuf;
+  uint8_t protocol;
+  struct rte_ring *sndbuf;
+  struct rte_ring *rcvbuf;
 
-    struct localhost *prev;
-    struct localhost *next;
+  struct localhost *prev;
+  struct localhost *next;
 
-    pthread_cond_t cond;
-    pthread_mutex_t mutex;
+  pthread_cond_t cond;
+  pthread_mutex_t mutex;
 };
 
-struct offload
-{
+struct offload {
 
-    uint32_t sip;
-    uint32_t dip;
+  uint32_t sip;
+  uint32_t dip;
 
-    uint16_t sport;
-    uint16_t dport;
+  uint16_t sport;
+  uint16_t dport;
 
-    int protocol;
+  int protocol;
 
-    unsigned char *data;
-    uint16_t length;
+  unsigned char *data;
+  uint16_t length;
 };
 
-struct ring_buffer
-{
-    struct rte_ring *in;
-    struct rte_ring *out;
+struct ring_buffer {
+  struct rte_ring *in;
+  struct rte_ring *out;
 };
 
 #define TCP_OPTION_LENGTH 10
@@ -81,83 +78,78 @@ struct ring_buffer
 #define TCP_INITIAL_WINDOW 14600
 
 // for tcp
-typedef enum TCP_STATUS
-{
+typedef enum TCP_STATUS {
 
-    TCP_STATUS_CLOSED = 0,
-    TCP_STATUS_LISTEN,
-    TCP_STATUS_SYN_RCVD,
-    TCP_STATUS_SYN_SENT,
-    TCP_STATUS_ESTABLISHED,
+  TCP_STATUS_CLOSED = 0,
+  TCP_STATUS_LISTEN,
+  TCP_STATUS_SYN_RCVD,
+  TCP_STATUS_SYN_SENT,
+  TCP_STATUS_ESTABLISHED,
 
-    TCP_STATUS_FIN_WAIT_1,
-    TCP_STATUS_FIN_WAIT_2,
-    TCP_STATUS_CLOSING,
-    TCP_STATUS_TIME_WAIT,
+  TCP_STATUS_FIN_WAIT_1,
+  TCP_STATUS_FIN_WAIT_2,
+  TCP_STATUS_CLOSING,
+  TCP_STATUS_TIME_WAIT,
 
-    TCP_STATUS_CLOSE_WAIT,
-    TCP_STATUS_LAST_ACK
+  TCP_STATUS_CLOSE_WAIT,
+  TCP_STATUS_LAST_ACK
 
 } TCP_STATUS;
 
-struct tcp_stream
-{ // tcb control block
+struct tcp_stream { // tcb control block
 
-    int fd; //
+  int fd; //
 
-    uint32_t sip;
-    uint32_t dip;
+  uint32_t sip;
+  uint32_t dip;
 
-    uint16_t sport;
-    uint16_t dport;
+  uint16_t sport;
+  uint16_t dport;
 
-    uint16_t proto;
+  uint16_t proto;
 
-    uint8_t localmac[RTE_ETHER_ADDR_LEN];
+  uint8_t localmac[RTE_ETHER_ADDR_LEN];
 
-    uint32_t snd_nxt; // seqnum
-    uint32_t rcv_nxt; // acknum
+  uint32_t snd_nxt; // seqnum
+  uint32_t rcv_nxt; // acknum
 
-    TCP_STATUS status;
+  TCP_STATUS status;
 
-    struct rte_ring *sndbuf;
-    struct rte_ring *rcvbuf;
+  struct rte_ring *sndbuf;
+  struct rte_ring *rcvbuf;
 
-    struct tcp_stream *prev;
-    struct tcp_stream *next;
+  struct tcp_stream *prev;
+  struct tcp_stream *next;
 };
 
-struct tcp_streams
-{
-    int count;
-    struct tcp_stream *stream_head;
+struct tcp_streams {
+  int count;
+  struct tcp_stream *stream_head;
 };
 
-struct tcp_frame
-{
+struct tcp_frame {
 
-    uint16_t sport;
-    uint16_t dport;
-    uint32_t seqnum; // cpu
-    uint32_t acknum; // cpu
-    uint8_t hdrlen_off;
-    uint8_t tcp_flags;
-    uint16_t windows;
-    uint16_t cksum;
-    uint16_t tcp_urp;
+  uint16_t sport;
+  uint16_t dport;
+  uint32_t seqnum; // cpu
+  uint32_t acknum; // cpu
+  uint8_t hdrlen_off;
+  uint8_t tcp_flags;
+  uint16_t windows;
+  uint16_t cksum;
+  uint16_t tcp_urp;
 
-    int optlen;
-    uint32_t option[TCP_OPTION_LENGTH];
+  int optlen;
+  uint32_t option[TCP_OPTION_LENGTH];
 
-    unsigned char *data;
-    int length;
+  unsigned char *data;
+  int length;
 };
 
 int udp_server_entry(__attribute__((unused)) void *arg);
 int nsocket(int domain, int type, int protocol);
 
-int nbind(int sockfd, const struct sockaddr *addr,
-          socklen_t addrlen);
+int nbind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
 
 ssize_t nrecvfrom(int sockfd, void *buf, size_t len, int flags,
                   struct sockaddr *src_addr, socklen_t *addrlen);
@@ -172,13 +164,15 @@ int process_udp(struct rte_mbuf *m);
 void add_to_head(struct localhost *lh);
 
 struct localhost *find_host_by_fd(struct localhost *lhost, int sockfd);
-struct localhost *find_host_by_ip_port(struct localhost *lhost, uint32_t ip, uint16_t port);
+struct localhost *find_host_by_ip_port(struct localhost *lhost, uint32_t ip,
+                                       uint16_t port);
 
 void del_node(struct localhost *host);
 
 void udp_out(void);
 
-void fill_ip_hdr(struct rte_mbuf *m, uint16_t len, uint32_t src_ip, uint32_t dst_ip, uint8_t proto_id);
+void fill_ip_hdr(struct rte_mbuf *m, uint16_t len, uint32_t src_ip,
+                 uint32_t dst_ip, uint8_t proto_id);
 
 void print_ip_port(uint32_t ip, uint16_t port);
 
@@ -187,7 +181,8 @@ void process_tcp(struct rte_mbuf *m);
 void tcp_handle_listen(struct tcp_stream *tcp_s, struct rte_tcp_hdr *tcphdr);
 void tcp_handle_syn_rcvd(struct tcp_stream *tcp_s, struct rte_tcp_hdr *tcphdr);
 void tcp_handle_syn_send(struct tcp_stream *tcp_s, struct rte_tcp_hdr *tcphdr);
-void tcp_handle_established(struct tcp_stream *tcp_s, struct rte_tcp_hdr *tcphdr);
+void tcp_handle_established(struct tcp_stream *tcp_s,
+                            struct rte_tcp_hdr *tcphdr);
 void tcp_out(void);
 
 void tcp_add_head(struct tcp_stream *sp);
