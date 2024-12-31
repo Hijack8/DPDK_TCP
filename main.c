@@ -340,6 +340,7 @@ int app_main_loop_eth() {
       if (hdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP)) {
         process_arp(m);
       } else if (hdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4)) {
+        printf("recv a ip pkt in eth \n");
         do {
           ret = rte_ring_enqueue(proto_ring->in, m);
         } while (ret != 0);
@@ -483,6 +484,8 @@ int app_main_loop_proto() {
       } else if (ip_hdr->next_proto_id == IPPROTO_TCP) {
         RTE_LOG(INFO, APP, "recv an TCP pkt. \n");
         process_tcp(m);
+      } else {
+        RTE_LOG(INFO, APP, "Cannot regconize the protocol. \n");
       }
       rte_pktmbuf_free(m);
     }

@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <getopt.h>
 #include <netinet/in.h>
+#include <rte_ip.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -180,11 +181,12 @@ void print_ip_port(uint32_t ip, uint16_t port);
 
 void process_tcp(struct rte_mbuf *m);
 
-void tcp_handle_listen(struct tcp_stream *tcp_s, struct rte_tcp_hdr *tcphdr);
+void tcp_handle_listen(struct tcp_stream *tcp_s, struct rte_tcp_hdr *tcphdr,
+                       struct rte_ipv4_hdr *iphdr);
 void tcp_handle_syn_rcvd(struct tcp_stream *tcp_s, struct rte_tcp_hdr *tcphdr);
 void tcp_handle_syn_send(struct tcp_stream *tcp_s, struct rte_tcp_hdr *tcphdr);
 void tcp_handle_established(struct tcp_stream *tcp_s,
-                            struct rte_tcp_hdr *tcphdr);
+                            struct rte_tcp_hdr *tcphdr, int tcp_len);
 void tcp_out(void);
 
 void tcp_add_head(struct tcp_stream *sp);
@@ -194,10 +196,17 @@ int tcp_server_entry(void *arg);
 int get_fd_from_bitmap();
 
 int nlisten(int sockfd, int backlog);
-ssize_t nrecv(int sockfd, void *buf, size_t len, int flags);
+int nrecv(int sockfd, void *buf, size_t len, int flags);
 ssize_t nsend(int sockfd, const void *buf, size_t len, int flags);
 int naccept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 
 struct tcp_streams *tcp_list_instance();
 struct tcp_stream *tcp_find_host_by_ip_port(uint32_t sip, uint32_t dip,
                                             uint16_t sport, uint16_t dport);
+struct rte_mbuf *encode_tcp(struct tcp_frame *tcp_pd, uint32_t sip,
+                            uint32_t dip);
+
+void tcp_handle_close_wait(struct tcp_stream *tcp_s,
+                           struct rte_tcp_hdr *tcphdr);
+
+void tcp_handle_last_ack(struct tcp_stream *tcp_s, struct rte_tcp_hdr *tcphdr);
