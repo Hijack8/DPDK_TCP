@@ -232,8 +232,8 @@ int nclose(int fd) {
     fin->seqnum = tcp_s->snd_nxt;
     fin->tcp_flags = RTE_TCP_FIN_FLAG | RTE_TCP_ACK_FLAG;
     fin->data = NULL;
-    fin->sport = tcp_s->sport;
-    fin->dport = tcp_s->dport;
+    fin->sport = tcp_s->dport;
+    fin->dport = tcp_s->sport;
     fin->windows = TCP_INITIAL_WINDOW;
     fin->hdrlen_off = 0x50;
     int ret;
@@ -242,12 +242,12 @@ int nclose(int fd) {
     } while (ret != 0);
     tcp_s->status = TCP_STATUS_LAST_ACK;
     set_fd_from_bitmap(fd);
-    if (tcp_s->rcvbuf)
-      rte_free(tcp_s->rcvbuf);
-    if (tcp_s->sndbuf)
-      rte_free(tcp_s->sndbuf);
-    tcp_del_node(tcp_s);
-    rte_free(tcp_s);
+    // if (tcp_s->rcvbuf)
+    //   rte_free(tcp_s->rcvbuf);
+    // if (tcp_s->sndbuf)
+    //   rte_free(tcp_s->sndbuf);
+    // tcp_del_node(tcp_s);
+    // rte_free(tcp_s);
   } else if (host->protocol == IPPROTO_UDP) {
     if (host->rcvbuf)
       rte_free(host->rcvbuf);

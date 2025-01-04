@@ -265,9 +265,10 @@ void tcp_handle_established(struct tcp_stream *tcp_s,
     tcp_s->snd_nxt = rte_be_to_cpu_32(tcphdr->recv_ack);
 
     tcp_send_ack(tcp_s, tcphdr);
-  } else if (tcphdr->tcp_flags & RTE_TCP_ACK_FLAG) {
-
-  } else if (tcphdr->tcp_flags & RTE_TCP_FIN_FLAG) {
+  } // else if (tcphdr->tcp_flags & RTE_TCP_ACK_FLAG) {
+  // }
+  else if (tcphdr->tcp_flags & RTE_TCP_FIN_FLAG) {
+    // client finial the connect
     tcp_enqueue_rcvbuf(tcp_s, tcphdr, tcplen);
 
     tcp_s->rcv_nxt = tcp_s->rcv_nxt + 1;

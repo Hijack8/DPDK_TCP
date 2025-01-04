@@ -40,13 +40,23 @@ void *find_host_by_fd(int sockfd) {
 }
 
 void del_node(struct localhost *host) {
-  host->prev->next = host->next;
-  host->next->prev = host->prev;
+  if (host->prev)
+    host->prev->next = host->next;
+  if (host->next)
+    host->next->prev = host->prev;
+  if (lhost == host)
+    lhost = host->next;
+  host->next = host->prev = NULL;
 }
 
 void tcp_del_node(struct tcp_stream *tcp_s) {
-  tcp_s->prev->next = tcp_s->next;
-  tcp_s->next->prev = tcp_s->prev;
+  if (tcp_s->prev)
+    tcp_s->prev->next = tcp_s->next;
+  if (tcp_s->next)
+    tcp_s->next->prev = tcp_s->prev;
+  if (tcp_s == tcp_list->stream_head)
+    tcp_list->stream_head = tcp_s->next;
+  tcp_s->next = tcp_s->prev = NULL;
 }
 
 struct localhost *find_host_by_ip_port(uint32_t ip, uint16_t port) {
