@@ -1,3 +1,5 @@
+#ifndef __MAIN_H_
+#define __MAIN_H_
 #include <errno.h>
 #include <getopt.h>
 #include <netinet/in.h>
@@ -35,6 +37,7 @@
 #define RING_SIZE 1024
 #define ARP_TABLE_SIZE 10
 #define TIMER_CYCLES 1200000000ULL
+#define ENABLE_EPOLL 1
 
 struct localhost {
   int fd;
@@ -127,6 +130,7 @@ struct tcp_stream { // tcb control block
 
 struct tcp_streams {
   int count;
+  struct eventpoll *ep;
   struct tcp_stream *stream_head;
 };
 
@@ -192,6 +196,7 @@ void tcp_out(void);
 void tcp_add_head(struct tcp_stream *sp);
 
 int tcp_server_entry(void *arg);
+int tcp_server_epoll_entry();
 
 int get_fd_from_bitmap();
 
@@ -210,3 +215,5 @@ void tcp_handle_close_wait(struct tcp_stream *tcp_s,
                            struct rte_tcp_hdr *tcphdr);
 
 void tcp_handle_last_ack(struct tcp_stream *tcp_s, struct rte_tcp_hdr *tcphdr);
+
+#endif

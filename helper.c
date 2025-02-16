@@ -1,4 +1,5 @@
 
+#include "epoll.h"
 #include "main.h"
 
 extern struct localhost *lhost;
@@ -25,16 +26,23 @@ void add_to_head(struct localhost *lh) {
 }
 
 void *find_host_by_fd(int sockfd) {
+  // for udp
   for (struct localhost *hosti = lhost; hosti != NULL; hosti = hosti->next) {
     if (hosti->fd == sockfd)
       return hosti;
   }
 
+  // for tcp
   struct tcp_streams *tcp_list_inst = tcp_list_instance();
   for (struct tcp_stream *streami = tcp_list_inst->stream_head; streami != NULL;
        streami = streami->next) {
     if (streami->fd == sockfd)
       return streami;
+  }
+
+  // for epoll
+  if (tcp_list_inst->ep != NULL && sockfd == tcp_list_inst->ep->fd) {
+    return tcp_list_inst->ep;
   }
   return NULL;
 }

@@ -276,6 +276,7 @@ struct rte_mbuf *encode_arp(uint16_t arp_opcode, uint8_t *dst_mac,
   return arp_pkt;
 }
 
+// arp request 
 static void arp_request_timer_cb(__attribute__((unused)) struct rte_timer *tim,
                                  void *arg) {
   // RTE_LOG(INFO, APP, "ARP request \n");
@@ -510,7 +511,11 @@ int app_main_loop(void *) {
     app_main_loop_proto();
   } else if (lcore_id == 3) {
     // udp_server_entry(NULL);
+#if ENABLE_EPOLL == 1
+    tcp_server_epoll_entry(NULL);
+#else
     tcp_server_entry(NULL);
+#endif
   }
   return 0;
 }

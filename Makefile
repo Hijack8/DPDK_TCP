@@ -5,7 +5,7 @@
 APP = app
 
 # all source are stored in SRCS-y
-SRCS-y := main.h tcp.c helper.c main.c udp.c api.c
+SRCS-y := tcp.c helper.c main.c udp.c api.c epoll.c 
 
 PKGCONF ?= pkg-config
 

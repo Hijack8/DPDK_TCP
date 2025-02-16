@@ -213,6 +213,7 @@ ssize_t nsendto(int sockfd, const void *buf, size_t len, int flags,
 }
 
 void set_fd_from_bitmap(int fd) {
+  // printf("set %d = 0 \n", fd);
   if (fd > MAX_FD)
     return;
   bitmap[fd] = 0;
